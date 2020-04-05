@@ -5,6 +5,7 @@ import com.google.common.cache.CacheBuilder;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import lombok.Getter;
+import org.fusesource.jansi.AnsiConsole;
 import org.slf4j.helpers.MessageFormatter;
 import sakura.kooi.MixedBiliveServer.clients.BiliHelperClient;
 import sakura.kooi.MixedBiliveServer.clients.OfficialClient;
@@ -45,6 +46,7 @@ public class SakuraBilive {
 
     public static void main(String[] args) throws Exception {
         //logger.setLogLevelEnabled(Constants.LOGLEVEL_PACKET, true);
+        AnsiConsole.systemInstall();
         logger.info("Sakura bilive_server | 聚合抽奖监听服务器 | Powered by SakuraKooi");
         startTime = System.currentTimeMillis();
         nf.setMaximumFractionDigits(4);
