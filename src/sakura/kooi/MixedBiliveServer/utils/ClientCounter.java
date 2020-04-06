@@ -24,6 +24,7 @@ public class ClientCounter {
     }
 
     public String report() {
+        if (counter.isEmpty()) return "无";
         return Joiner.on(" | ").join(counter.entrySet().stream().map(entry -> entry.getKey()+" x"+entry.getValue()).collect(Collectors.toList()));
     }
 }

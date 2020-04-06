@@ -27,7 +27,7 @@ public class ExtensionRequestData {
             if(keyValue.length > 1) {
                 String tempValue = keyValue[1].trim();
 
-                // If the value is wrapped in quotes, just get the data between them.
+                // If the value is wrapped in quotes, just create the data between them.
                 if((tempValue.startsWith("\"") && tempValue.endsWith("\""))
                         || (tempValue.startsWith("'") && tempValue.endsWith("'"))
                         && tempValue.length() > 2)

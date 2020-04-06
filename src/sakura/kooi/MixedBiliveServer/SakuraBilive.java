@@ -1,5 +1,6 @@
 package sakura.kooi.MixedBiliveServer;
 
+import com.google.common.base.Strings;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.gson.JsonObject;
@@ -8,9 +9,11 @@ import lombok.Getter;
 import org.fusesource.jansi.AnsiConsole;
 import org.slf4j.helpers.MessageFormatter;
 import sakura.kooi.MixedBiliveServer.clients.BiliHelperClient;
+import sakura.kooi.MixedBiliveServer.clients.ClientContainer;
 import sakura.kooi.MixedBiliveServer.clients.OfficialClient;
 import sakura.kooi.MixedBiliveServer.clients.YokiClient;
 import sakura.kooi.MixedBiliveServer.utils.ClientCounter;
+import sakura.kooi.MixedBiliveServer.utils.TimeUtils;
 import sakura.kooi.logger.Logger;
 
 import java.io.IOException;
@@ -19,10 +22,13 @@ import java.net.InetSocketAddress;
 import java.net.URI;
 import java.text.DecimalFormat;
 import java.text.SimpleDateFormat;
+import java.time.Duration;
+import java.util.LinkedHashSet;
 import java.util.Scanner;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class SakuraBilive {
     private static final Logger logger = Logger.of("Launcher");
@@ -34,14 +40,12 @@ public class SakuraBilive {
     private static ExecutorService threadPool = Executors.newCachedThreadPool();
     @Getter
     private static ExecutorService sentPool = Executors.newSingleThreadExecutor();
-    private static OfficialClient officialClient;
-    private static YokiClient yokiClient;
-    private static BiliHelperClient biliHelperClient;
+    private static LinkedHashSet<ClientContainer> clients = new LinkedHashSet<>();
 
     private static long startTime;
-    private static long lotteryMin = -1L;
-    private static long lotteryCurrent = -1L;
-    private static long caughtLottery = 0L;
+    private static AtomicLong lotteryMin = new AtomicLong(-1L);
+    private static AtomicLong lotteryCurrent = new AtomicLong(-1L);
+    private static AtomicLong caughtLottery = new AtomicLong(0L);
     private static ClientCounter counter = new ClientCounter();
 
     public static void main(String[] args) throws Exception {
@@ -55,9 +59,8 @@ public class SakuraBilive {
         biliveServer.start();
         Runtime.getRuntime().addShutdownHook(new Thread(SakuraBilive::shutdown));
         logger.info("正在连接监听服务器节点...");
-        reconnectOfficialClient(0);
-        reconnectYokiClient(0);
-        reconnectBiliHelperClient(0);
+        initializeClients();
+        clients.forEach(ClientContainer::doReconnect);
         try {
             Scanner scn = new Scanner(System.in);
             while (scn.hasNextLine()) {
@@ -78,6 +81,12 @@ public class SakuraBilive {
         }
     }
 
+    private static void initializeClients() {
+        clients.add(new ClientContainer("Vector000", container -> new OfficialClient(new URI(Constants.BILIVE_OFFICIAL_SERVER_ADDRESS), Constants.BILIVE_OFFICIAL_SERVER_PROTOCOL, container)));
+        clients.add(new ClientContainer("Yoki", container -> new YokiClient(new URI(Constants.YOKI_SERVER_ADDRESS), container)));
+        clients.add(new ClientContainer("BiliHelper", container -> new BiliHelperClient(container)));
+    }
+
     private static final String reportFormat =
                     "----------------------------------------------------------------\n" +
                     " 监听服务器于 {} 启动\n" +
@@ -85,13 +94,13 @@ public class SakuraBilive {
                     " 舰队抽奖统计: 漏抽 {} / 推送 {} / 理论 {} (漏抽率 {}%)\n" +
                     " 共监听到 {}\n" +
                     "----------------------------------------------------------------\n" +
-                    " Vector000  监听到 {}\n" +
-                    " Yoki       监听到 {}\n" +
-                    " BiliHelper 监听到 {}\n" +
+                    "{}" +
+                    "----------------------------------------------------------------\n" +
+                    "{}" +
                     "----------------------------------------------------------------\n";
     private static void printStatus() {
-        long totalLottery = lotteryMin == -1 ? 0 : lotteryCurrent == lotteryMin ? 1 : lotteryCurrent - lotteryMin;
-        long missLottery = totalLottery - caughtLottery;
+        long totalLottery = lotteryMin.get() == -1 ? 0 : lotteryCurrent.get() - lotteryMin.get() + 1;
+        long missLottery = totalLottery - caughtLottery.get();
         logger.info(MessageFormatter.arrayFormat(reportFormat, new Object[]{
                 df.format(startTime),
                 BiliveServer.currentOnline.get(),
@@ -100,94 +109,54 @@ public class SakuraBilive {
                 totalLottery,
                 totalLottery == 0 ? 0 : nf.format((missLottery / (float)totalLottery)*100),
                 counter.report(),
-                OfficialClient.getCounter().report(),
-                YokiClient.getCounter().report(),
-                BiliHelperClient.getCounter().report()
+                createLotteryReport(),
+                createStatusReport(),
         }).getMessage());
     }
 
-    public static void reconnectBiliHelperClient(int retry) {
-        threadPool.submit(() -> {
-            try {
-                retrySleep(retry);
-                try {
-                    BiliHelperClient.logger.info("正在尝试连接至BiliHelper监听服务器...");
-                    biliHelperClient = new BiliHelperClient(retry);
-                    biliHelperClient.connect();
-                } catch (Exception e) {
-                    BiliHelperClient.logger.error("连接监听服务器失败, 稍候重试...", e);
-                    reconnectBiliHelperClient(retry+1);
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+    private static String createStatusReport() {
+        StringBuilder sb = new StringBuilder();
+        for (ClientContainer container : clients) {
+            sb.append(' ').append(Strings.padEnd(container.getName(), 12, ' '));
+            if (container.getConnected().get()) {
+                sb.append("已连接");
+            } else if (container.getNextConnect() == -1L) {
+                sb.append("未连接");
+            } else {
+                sb.append("断开连接");
             }
-        });
-    }
+            sb.append(' ');
+            if (container.getConnected().get()) {
+                sb.append(TimeUtils.millisToShortDHMS(System.currentTimeMillis() - container.getNextConnect()));
 
-    public static void reconnectYokiClient(int retry) {
-        threadPool.submit(() -> {
-            try {
-                retrySleep(retry);
-                try {
-                    YokiClient.logger.info("正在尝试连接至Yoki监听服务器...");
-                    yokiClient = new YokiClient(new URI(Constants.YOKI_SERVER_ADDRESS), retry);
-                    yokiClient.connect();
-                } catch (Exception e) {
-                    YokiClient.logger.error("连接监听服务器失败, 稍候重试...", e);
-                    reconnectYokiClient(retry+1);
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+            } else {
+                sb.append("已重试 ").append(container.getRetried()).append(" 次 ")
+                        .append("下次连接于 ").append(TimeUtils.millisToShortDHMS(container.getNextConnect() - System.currentTimeMillis())).append(" 后");
             }
-        });
-    }
-
-    public static void reconnectOfficialClient(int retry) {
-        threadPool.submit(() -> {
-            try {
-                retrySleep(retry);
-                try {
-                    OfficialClient.logger.info("正在尝试连接至Vector000监听服务器...");
-                    officialClient = new OfficialClient(new URI(Constants.BILIVE_OFFICIAL_SERVER_ADDRESS), Constants.BILIVE_OFFICIAL_SERVER_PROTOCOL, retry);
-                    officialClient.connect();
-                } catch (Exception e) {
-                    OfficialClient.logger.error("连接监听服务器失败, 稍候重试...", e);
-                    reconnectYokiClient(retry+1);
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        });
-    }
-
-    private static void retrySleep(int retry) throws InterruptedException {
-        if (retry == 0) return;
-        if (retry < 5) {
-            Thread.sleep(TimeUnit.SECONDS.toMillis(5));
-        } else if (retry < 10) {
-            Thread.sleep(TimeUnit.MINUTES.toMillis(15));
-        } else {
-            Thread.sleep(TimeUnit.HOURS.toMillis(60));
+            sb.append('\n');
         }
+        return sb.toString();
+    }
+
+    private static String createLotteryReport() {
+        StringBuilder sb = new StringBuilder();
+        for (ClientContainer container : clients) {
+            sb.append(' ').append(Strings.padEnd(container.getName(), 12, ' '))
+                    .append("监听到 ").append(container.getCounter().report())
+                    .append('\n');
+        }
+        return sb.toString();
     }
 
     private static void shutdown() {
-        if (officialClient != null) {
-            logger.info("正在断开Vector000监听客户端...");
-            officialClient.shutdown();
-        }
-        if (yokiClient != null) {
-            logger.info("正在断开Yoki监听客户端...");
-            yokiClient.shutdown();
-        }
-        if (biliHelperClient != null) {
-            logger.info("正在断开BiliHelper监听客户端...");
+        clients.forEach(container -> {
+            container.getLogger().info("正在关闭到 {} 的监听连接", container.getHostString());
             try {
-                biliHelperClient.shutdown();
+                container.disconnect();
             } catch (IOException e) {
-                e.printStackTrace();
+                container.getLogger().errorEx("关闭到 {} 的监听连接出错", e, container.getHostString());
             }
-        }
+        });
         logger.info("正在关闭线程池...");
         threadPool.shutdownNow();
         sentPool.shutdownNow();
@@ -210,13 +179,11 @@ public class SakuraBilive {
                 counter.increment(cmd);
                 BiliveServer.logger.log(Constants.LOGLEVEL_SENT, "转发抽奖 -> 房间 {} 开启了 {} | #{} {} {}", roomId, title, id, cmd, type);
                 if (cmd.equals("lottery")) {
-                    caughtLottery++;
-                    if (lotteryMin == -1) {
-                        lotteryMin = id;
-                        lotteryCurrent = id;
-                        return;
+                    caughtLottery.incrementAndGet();
+                    if (lotteryMin.get() == -1) {
+                        lotteryMin.set(id);
                     }
-                    lotteryCurrent = id;
+                    lotteryCurrent.set(id);
                 }
             }
         }

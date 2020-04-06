@@ -14,21 +14,17 @@ import sakura.kooi.MixedBiliveServer.SakuraBilive;
 import sakura.kooi.MixedBiliveServer.utils.PerMessageDeflateExtension;
 import sakura.kooi.logger.Logger;
 
+import java.io.IOException;
 import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.*;
 
-public class OfficialClient extends WebSocketClient {
-    public static final Logger logger = Logger.of("BiliveClient");
-    @Getter
-    private static ClientCounter counter = new ClientCounter();
-
-    private boolean running = true;
-    private int retry;
-    private String hostString;
-    public OfficialClient(URI serverUri, String protocol, int retry) {
+public class OfficialClient extends WebSocketClient implements IBroadcastSource {
+    private ClientContainer container;
+    public OfficialClient(URI serverUri, String protocol, ClientContainer container) throws URISyntaxException {
         super(serverUri, new Draft_6455(Collections.singletonList(new PerMessageDeflateExtension()), Collections.singletonList(new Protocol(protocol))), toHeader(protocol));
-        this.retry = retry;
-        hostString = serverUri.getHost()+":"+serverUri.getPort();
+        this.container = container;
+        container.setHostString("ws://" + serverUri.getHost() + ":" + serverUri.getPort());
     }
 
     private static Map<String, String> toHeader(String protocol) {
@@ -40,21 +36,39 @@ public class OfficialClient extends WebSocketClient {
 
     @Override
     public void onOpen(ServerHandshake serverHandshake) {
-        logger.info("成功连接至 ws://{}", hostString);
-        retry = 0;
+        container.onConnected();
     }
 
     @Override
     public void onMessage(String s) {
-        logger.log(Constants.LOGLEVEL_PACKET, "Received packet {}", s);
-        JsonElement json = JsonParser.parseString(s);
+        container.onPacketReceived(s);
+    }
+
+    @Override
+    public void onClose(int code, String reason, boolean remote) {
+        container.onDisconnected(code+" "+reason);
+    }
+
+    @Override
+    public void onError(Exception e) {
+        container.onErrorOccurred("数据处理出错", e);
+    }
+
+    @Override
+    public void disconnect() {
+        this.close();
+    }
+
+    @Override
+    public void processPacket(String packet) {
+        JsonElement json = JsonParser.parseString(packet);
         if (json.isJsonObject()) {
             JsonObject jsonObject = json.getAsJsonObject();
             if (jsonObject.has("cmd")) {
                 String cmd = jsonObject.get("cmd").getAsString();
                 if (Constants.WHITELISTED_COMMANDS.contains(cmd.toLowerCase())) {
                     if (cmd.equals("sysmsg")) {
-                        logger.success("来自 ws://{} 的系统消息: {}", hostString, jsonObject.get("msg").getAsString());
+                        container.getLogger().success("来自 {} 的系统消息: {}", container.getHostString(), jsonObject.get("msg").getAsString());
                     } else {
                         long room = jsonObject.get("roomID").getAsLong();
                         long id = jsonObject.get("id").getAsLong();
@@ -63,35 +77,14 @@ public class OfficialClient extends WebSocketClient {
                         int time = jsonObject.has("time") ? jsonObject.get("time").getAsInt() : -1;
                         int max_time = jsonObject.has("max_time") ? jsonObject.get("max_time").getAsInt() : -1;
                         int time_wait = jsonObject.has("time_wait") ? jsonObject.get("time_wait").getAsInt() : -1;
-                        logger.info("源 ws://{} -> {} {} #{}", hostString, room, title, id);
-                        counter.increment(cmd);
-                        SakuraBilive.rebroadcast(cmd, id, room, type, title+" [VECT]", time, max_time, time_wait);
+                        container.onLotteryReceived(cmd, id, room, type, title + " [VECT]", time, max_time, time_wait);
                     }
                 } else {
-                    logger.trace("Drop non-whitelisted command from ws://{} -> {}", hostString, cmd);
+                    container.getLogger().trace("Drop non-whitelisted command from {} -> {}", container.getHostString(), cmd);
                 }
                 return;
             }
         }
-        logger.warn("收到未知的数据包 ws://{} -> {}", hostString, s);
-    }
-
-    @Override
-    public void onClose(int code, String reason, boolean remote) {
-        logger.warn("到服务器 ws://{} 的连接已断开 : {} {}", hostString, code, reason);
-        if (running) {
-            retry++;
-            SakuraBilive.reconnectOfficialClient(retry);
-        }
-    }
-
-    @Override
-    public void onError(Exception e) {
-        logger.errorEx("节点服务器 ws://{} 连接处理出错", e, hostString);
-    }
-
-    public void shutdown() {
-        running = false;
-        this.close();
+        container.getLogger().warn("收到未知的数据包 {} -> {}", container.getHostString(), packet);
     }
 }
