@@ -3,28 +3,24 @@ package sakura.kooi.MixedBiliveServer.clients;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import lombok.Getter;
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.drafts.Draft_6455;
 import org.java_websocket.handshake.ServerHandshake;
 import org.java_websocket.protocols.Protocol;
-import sakura.kooi.MixedBiliveServer.utils.ClientCounter;
 import sakura.kooi.MixedBiliveServer.Constants;
-import sakura.kooi.MixedBiliveServer.SakuraBilive;
 import sakura.kooi.MixedBiliveServer.utils.PerMessageDeflateExtension;
-import sakura.kooi.logger.Logger;
 
-import java.io.IOException;
 import java.net.URI;
-import java.net.URISyntaxException;
-import java.util.*;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 
 public class OfficialClient extends WebSocketClient implements IBroadcastSource {
     private ClientContainer container;
-    public OfficialClient(URI serverUri, String protocol, ClientContainer container) throws URISyntaxException {
-        super(serverUri, new Draft_6455(Collections.singletonList(new PerMessageDeflateExtension()), Collections.singletonList(new Protocol(protocol))), toHeader(protocol));
+    public OfficialClient(URI uri, String protocol, ClientContainer container) {
+        super(uri, new Draft_6455(Collections.singletonList(new PerMessageDeflateExtension()), Collections.singletonList(new Protocol(protocol))), toHeader(protocol));
         this.container = container;
-        container.setHostString("ws://" + serverUri.getHost() + ":" + serverUri.getPort());
+        container.setHostString("ws://" + uri.getAuthority());
     }
 
     private static Map<String, String> toHeader(String protocol) {
@@ -55,7 +51,7 @@ public class OfficialClient extends WebSocketClient implements IBroadcastSource 
     }
 
     @Override
-    public void disconnect() {
+    public void disconnect(String reason) {
         this.close();
     }
 
@@ -77,7 +73,7 @@ public class OfficialClient extends WebSocketClient implements IBroadcastSource 
                         int time = jsonObject.has("time") ? jsonObject.get("time").getAsInt() : -1;
                         int max_time = jsonObject.has("max_time") ? jsonObject.get("max_time").getAsInt() : -1;
                         int time_wait = jsonObject.has("time_wait") ? jsonObject.get("time_wait").getAsInt() : -1;
-                        container.onLotteryReceived(cmd, id, room, type, title + " [VECT]", time, max_time, time_wait);
+                        container.onLotteryReceived(cmd, id, room, type, title, time, max_time, time_wait);
                     }
                 } else {
                     container.getLogger().trace("Drop non-whitelisted command from {} -> {}", container.getHostString(), cmd);

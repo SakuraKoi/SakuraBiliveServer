@@ -4,12 +4,9 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
-import lombok.Getter;
-import sakura.kooi.MixedBiliveServer.utils.ClientCounter;
 import sakura.kooi.MixedBiliveServer.Constants;
 import sakura.kooi.MixedBiliveServer.SakuraBilive;
 import sakura.kooi.MixedBiliveServer.utils.FishingDetection;
-import sakura.kooi.logger.Logger;
 
 import java.io.*;
 import java.net.InetAddress;
@@ -31,14 +28,16 @@ public class BiliHelperClient implements IBroadcastSource {
 
     public void connect() throws IOException {
         socket.connect(new InetSocketAddress(InetAddress.getByName(Constants.BILI_HELPER_SERVER_HOST), Constants.BILI_HELPER_SERVER_PORT));
-        container.setHostString(""+Constants.BILI_HELPER_SERVER_HOST+":"+Constants.BILI_HELPER_SERVER_PORT);
+        container.setHostString("tcp://"+Constants.BILI_HELPER_SERVER_HOST+":"+Constants.BILI_HELPER_SERVER_PORT);
         SakuraBilive.getThreadPool().execute(this::handleConnection);
     }
 
     @Override
-    public void disconnect() throws IOException {
-        socket.close();
-        container.onDisconnected("断开连接");
+    public void disconnect(String reason) throws IOException {
+        if (!socket.isClosed()) {
+            socket.close();
+            container.onDisconnected(reason);
+        }
     }
 
     @Override
@@ -66,7 +65,7 @@ public class BiliHelperClient implements IBroadcastSource {
                         if ("guard".equals(raffleType)) {
                             cmd = "lottery";
                         } else {
-                            container.getLogger().trace("Unknown lottery type {}, packet {}", raffleType, packet);
+                            container.getLogger().trace("Drop lottery type {}, packet {}", raffleType, packet);
                             return;
                         }
                         final String title = titleS;
@@ -75,7 +74,7 @@ public class BiliHelperClient implements IBroadcastSource {
                                 container.getLogger().warn("丢弃钓鱼抽奖 {} {} #{}", room, title, id);
                                 return;
                             }
-                            container.onLotteryReceived(cmd, id, room, type, title + " [BIHP]", 1200, -1, -1);
+                            container.onLotteryReceived(cmd, id, room, raffleType, title, 1200, -1, -1);
                         });
                     } else {
                         container.getLogger().warn("收到错误格式的数据包 {} -> {}", container.getHostString(), packet);
@@ -114,11 +113,11 @@ public class BiliHelperClient implements IBroadcastSource {
                     container.onPacketReceived(packet);
                 }
             } catch (EOFException e) {
-                disconnect();
+                disconnect("连接关闭");
             } catch (IOException e) {
                 if (container.getRunning().get())
                     container.getLogger().error("读取数据包时发生了错误", e);
-                disconnect();
+                disconnect("IO错误");
             }
         } catch (IOException e) {
             container.getLogger().error("登录监听服务器时发生了错误", e);

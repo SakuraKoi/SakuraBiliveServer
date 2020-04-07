@@ -19,6 +19,10 @@ public class ClientCounter {
         return counter.entrySet();
     }
 
+    public void reset() {
+        counter.clear();
+    }
+
     public void increment(String type) {
         counter.computeIfAbsent(type, key -> new AtomicLong()).incrementAndGet();
     }

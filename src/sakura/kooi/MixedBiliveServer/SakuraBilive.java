@@ -8,11 +8,9 @@ import com.google.gson.JsonPrimitive;
 import lombok.Getter;
 import org.fusesource.jansi.AnsiConsole;
 import org.slf4j.helpers.MessageFormatter;
-import sakura.kooi.MixedBiliveServer.clients.BiliHelperClient;
-import sakura.kooi.MixedBiliveServer.clients.ClientContainer;
-import sakura.kooi.MixedBiliveServer.clients.OfficialClient;
-import sakura.kooi.MixedBiliveServer.clients.YokiClient;
+import sakura.kooi.MixedBiliveServer.clients.*;
 import sakura.kooi.MixedBiliveServer.utils.ClientCounter;
+import sakura.kooi.MixedBiliveServer.utils.FishingDetection;
 import sakura.kooi.MixedBiliveServer.utils.TimeUtils;
 import sakura.kooi.logger.Logger;
 
@@ -22,7 +20,6 @@ import java.net.InetSocketAddress;
 import java.net.URI;
 import java.text.DecimalFormat;
 import java.text.SimpleDateFormat;
-import java.time.Duration;
 import java.util.LinkedHashSet;
 import java.util.Scanner;
 import java.util.concurrent.ExecutorService;
@@ -49,8 +46,10 @@ public class SakuraBilive {
     private static ClientCounter counter = new ClientCounter();
 
     public static void main(String[] args) throws Exception {
-        //logger.setLogLevelEnabled(Constants.LOGLEVEL_PACKET, true);
-        AnsiConsole.systemInstall();
+       // logger.setLogLevelEnabled(LogLevel.TRACE, true);
+        if (!Boolean.getBoolean("running_in_idea"))
+            AnsiConsole.systemInstall();
+
         logger.info("Sakura bilive_server | 聚合抽奖监听服务器 | Powered by SakuraKooi");
         startTime = System.currentTimeMillis();
         nf.setMaximumFractionDigits(4);
@@ -72,6 +71,16 @@ public class SakuraBilive {
                     } catch (Exception e) {
                         logger.error("打印报告时出现错误", e);
                     }
+                } else if ("reset".equalsIgnoreCase(ln)) {
+                    counter.reset();
+                    lotteryMin.set(-1L);
+                    lotteryCurrent.set(-1L);
+                    caughtLottery.set(0L);
+                    clients.forEach(client -> {
+                        client.getHits().set(0);
+                        client.getCounter().reset();
+                    });
+                    logger.info("成功重置抽奖计数");
                 }
             }
             scn.close();
@@ -82,28 +91,32 @@ public class SakuraBilive {
     }
 
     private static void initializeClients() {
-        clients.add(new ClientContainer("Vector000", container -> new OfficialClient(new URI(Constants.BILIVE_OFFICIAL_SERVER_ADDRESS), Constants.BILIVE_OFFICIAL_SERVER_PROTOCOL, container)));
-        clients.add(new ClientContainer("Yoki", container -> new YokiClient(new URI(Constants.YOKI_SERVER_ADDRESS), container)));
-        clients.add(new ClientContainer("BiliHelper", container -> new BiliHelperClient(container)));
+        clients.add(new ClientContainer("RaffleJS", "RFJS", container -> new RaffleJsClient(new URI(Constants.RAFLEJS_SERVER_ADDRESS), container)));
+        clients.add(new ClientContainer("Lzghzr", "LZGH",container -> new OfficialClient(new URI(Constants.LZGHZR_SERVER_ADDRESS), Constants.LZGHZR_SERVER_PROTOCOL, container)));
+        clients.add(new ClientContainer("Vector000", "VECT", container -> new OfficialClient(new URI(Constants.VECTOR_SERVER_ADDRESS), Constants.VECTOR_SERVER_PROTOCOL, container)));
+        clients.add(new ClientContainer("Yoki", "YOKI",container -> new YokiClient(new URI(Constants.YOKI_SERVER_ADDRESS), container)));
+        clients.add(new ClientContainer("BiliHelper", "BIHP", container -> new BiliHelperClient(container)));
     }
 
     private static final String reportFormat =
-                    "----------------------------------------------------------------\n" +
+                    "---------------------------------------------------------------------------------------------------------\n" +
                     " 监听服务器于 {} 启动\n" +
-                    " 当前在线客户端 {} 个\n" +
+                    " 当前在线客户端 {} 个 识别到 {}/{} 个钓鱼房间\n" +
                     " 舰队抽奖统计: 漏抽 {} / 推送 {} / 理论 {} (漏抽率 {}%)\n" +
                     " 共监听到 {}\n" +
-                    "----------------------------------------------------------------\n" +
+                    "---------------------------------------------------------------------------------------------------------\n" +
                     "{}" +
-                    "----------------------------------------------------------------\n" +
+                    "---------------------------------------------------------------------------------------------------------\n" +
                     "{}" +
-                    "----------------------------------------------------------------\n";
+                    "---------------------------------------------------------------------------------------------------------\n";
     private static void printStatus() {
         long totalLottery = lotteryMin.get() == -1 ? 0 : lotteryCurrent.get() - lotteryMin.get() + 1;
         long missLottery = totalLottery - caughtLottery.get();
         logger.info(MessageFormatter.arrayFormat(reportFormat, new Object[]{
                 df.format(startTime),
                 BiliveServer.currentOnline.get(),
+                FishingDetection.countFishing(),
+                FishingDetection.countTotal(),
                 missLottery,
                 caughtLottery,
                 totalLottery,
@@ -116,23 +129,36 @@ public class SakuraBilive {
 
     private static String createStatusReport() {
         StringBuilder sb = new StringBuilder();
-        for (ClientContainer container : clients) {
-            sb.append(' ').append(Strings.padEnd(container.getName(), 12, ' '));
-            if (container.getConnected().get()) {
-                sb.append("已连接");
-            } else if (container.getNextConnect() == -1L) {
-                sb.append("未连接");
-            } else {
-                sb.append("断开连接");
-            }
-            sb.append(' ');
-            if (container.getConnected().get()) {
-                sb.append(TimeUtils.millisToShortDHMS(System.currentTimeMillis() - container.getNextConnect()));
 
+        boolean sw = true;
+        for (ClientContainer container : clients) {
+            StringBuilder ln = new StringBuilder();
+            ln.append(' ').append(Strings.padEnd(container.getName(), 12, ' '));
+            if (container.getConnected().get()) {
+                ln.append("已连接");
+            } else if (container.getNextConnect() == -1L) {
+                ln.append("未连接");
             } else {
-                sb.append("已重试 ").append(container.getRetried()).append(" 次 ")
+                ln.append("断开");
+            }
+            ln.append(' ');
+            if (container.getConnected().get()) {
+                ln.append(TimeUtils.millisToShortDHMS(System.currentTimeMillis() - container.getNextConnect()));
+            } else {
+                ln.append("已重试 ").append(container.getRetried()).append(" 次 ")
                         .append("下次连接于 ").append(TimeUtils.millisToShortDHMS(container.getNextConnect() - System.currentTimeMillis())).append(" 后");
             }
+            if (sw) {
+                sb.append(Strings.padEnd(ln.toString(), 51, ' '));
+                sb.append(" | ");
+            } else {
+                ln.append('\n');
+                sb.append(ln);
+            }
+            sw = !sw;
+        }
+        if (!sw) {
+            sb.delete(sb.length()-3, sb.length());
             sb.append('\n');
         }
         return sb.toString();
@@ -142,7 +168,8 @@ public class SakuraBilive {
         StringBuilder sb = new StringBuilder();
         for (ClientContainer container : clients) {
             sb.append(' ').append(Strings.padEnd(container.getName(), 12, ' '))
-                    .append("监听到 ").append(container.getCounter().report())
+                    .append(Strings.padEnd("命中 "+container.getHits().get()+" 次", 11, ' '))
+                    .append(" | 监听到 ").append(container.getCounter().report())
                     .append('\n');
         }
         return sb.toString();
@@ -169,8 +196,8 @@ public class SakuraBilive {
             }
         logger.info("服务器关闭");
     }
-    private static final Cache<String, Boolean> lotteryCache =  CacheBuilder.newBuilder().expireAfterWrite(15, TimeUnit.MINUTES).build();
-    public static void rebroadcast(String cmd, long id, long roomId, String type, String title, int time, int max_time, int time_wait) {
+    private static final Cache<String, Boolean> lotteryCache =  CacheBuilder.newBuilder().expireAfterWrite(1, TimeUnit.HOURS).build();
+    public static boolean rebroadcast(String cmd, long id, long roomId, String type, String title, int time, int max_time, int time_wait) {
         String key = (cmd+id).toLowerCase();
         synchronized (lotteryCache) {
             if (lotteryCache.getIfPresent(key) == null) {
@@ -185,7 +212,9 @@ public class SakuraBilive {
                     }
                     lotteryCurrent.set(id);
                 }
+                return true;
             }
+            return false;
         }
     }
 

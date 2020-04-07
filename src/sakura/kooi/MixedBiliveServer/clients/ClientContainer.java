@@ -5,15 +5,15 @@ import lombok.Getter;
 import lombok.Setter;
 import sakura.kooi.MixedBiliveServer.Constants;
 import sakura.kooi.MixedBiliveServer.SakuraBilive;
-import sakura.kooi.MixedBiliveServer.utils.ClientCounter;
 import sakura.kooi.MixedBiliveServer.utils.ClientConstructor;
+import sakura.kooi.MixedBiliveServer.utils.ClientCounter;
 import sakura.kooi.logger.Logger;
 
 import java.io.IOException;
-import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class ClientContainer {
     @Getter @Setter(value = AccessLevel.PROTECTED)
@@ -32,16 +32,20 @@ public class ClientContainer {
     private String hostString;
     @Getter
     private ClientCounter counter = new ClientCounter();
-
+    @Getter
+    private AtomicLong hits = new AtomicLong(0L);
 
     @Getter
     private String name;
     @Getter
+    private String tag;
+    @Getter
     private Logger logger;
     private ClientConstructor<IBroadcastSource> constructor;
 
-    public ClientContainer(String name, ClientConstructor<IBroadcastSource> constructor) {
+    public ClientContainer(String name, String tag, ClientConstructor<IBroadcastSource> constructor) {
         this.name = name;
+        this.tag = " ["+tag+"]";
         this.constructor = constructor;
         logger = Logger.of(name+"-Client");
     }
@@ -59,7 +63,7 @@ public class ClientContainer {
     public void disconnect() throws IOException {
         running.set(false);
         if (client != null)
-            client.disconnect();
+            client.disconnect("断开连接");
     }
 
     protected void onConnected() {
@@ -82,9 +86,12 @@ public class ClientContainer {
     }
 
     protected void onLotteryReceived(String cmd, long id, long room, String type, String title, int time, int max_time, int time_wait) {
+        title = title + tag;
         logger.info("源 {} -> {} {} #{}", hostString, room, title, id);
         counter.increment(cmd);
-        SakuraBilive.rebroadcast(cmd, id, room, type, title, time, max_time, time_wait);
+        if (SakuraBilive.rebroadcast(cmd, id, room, type, title, time, max_time, time_wait)) {
+            hits.incrementAndGet();
+        }
     }
 
     public void doReconnect() {

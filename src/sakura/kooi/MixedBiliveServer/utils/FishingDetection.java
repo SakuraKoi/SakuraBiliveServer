@@ -2,13 +2,10 @@ package sakura.kooi.MixedBiliveServer.utils;
 
 import kong.unirest.HttpResponse;
 import kong.unirest.Unirest;
-import kong.unirest.UnirestException;
 import sakura.kooi.MixedBiliveServer.entity.RoomInfoEntity;
 import sakura.kooi.logger.Logger;
 
-import java.io.IOException;
 import java.util.HashMap;
-import java.util.HashSet;
 
 public class FishingDetection {
     private static Logger logger = Logger.of("FishingDetection");
@@ -36,5 +33,12 @@ public class FishingDetection {
             logger.error("检测钓鱼房间时出错", e);
             return true;
         }
+    }
+    public static long countFishing() {
+        return fishingRoom.values().stream().filter(aBoolean -> !aBoolean).count();
+    }
+
+    public static long countTotal() {
+        return fishingRoom.size();
     }
 }

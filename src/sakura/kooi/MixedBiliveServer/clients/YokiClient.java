@@ -19,10 +19,10 @@ import java.util.Map;
 public class YokiClient extends WebSocketClient implements IBroadcastSource {
     private ClientContainer container;
 
-    public YokiClient(URI yokiServer, ClientContainer container) throws IOException {
-        super(yokiServer, getHeader(container));
+    public YokiClient(URI uri, ClientContainer container) throws IOException {
+        super(uri, getHeader(container));
         this.container = container;
-        container.setHostString("ws://" + yokiServer.getHost() + ":" + yokiServer.getPort());
+        container.setHostString("ws://" + uri.getAuthority());
     }
 
     private static Map<String, String> getHeader(ClientContainer container) throws IOException {
@@ -70,7 +70,7 @@ public class YokiClient extends WebSocketClient implements IBroadcastSource {
     }
 
     @Override
-    public void disconnect() {
+    public void disconnect(String reason) {
         this.close();
     }
 
@@ -92,7 +92,7 @@ public class YokiClient extends WebSocketClient implements IBroadcastSource {
                         int time = jsonObject.has("time") ? jsonObject.get("time").getAsInt() : -1;
                         int max_time = jsonObject.has("max_time") ? jsonObject.get("max_time").getAsInt() : -1;
                         int time_wait = jsonObject.has("time_wait") ? jsonObject.get("time_wait").getAsInt() : -1;
-                        container.onLotteryReceived(cmd, id, room, type, title + " [YOKI]", time, max_time, time_wait);
+                        container.onLotteryReceived(cmd, id, room, type, title, time, max_time, time_wait);
                     }
                 } else {
                     container.getLogger().trace("Drop non-whitelisted command from {} -> {}", container.getHostString(), cmd);
