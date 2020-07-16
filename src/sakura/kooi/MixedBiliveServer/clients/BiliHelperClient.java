@@ -27,8 +27,8 @@ public class BiliHelperClient implements IBroadcastSource {
     }
 
     public void connect() throws IOException {
-        socket.connect(new InetSocketAddress(InetAddress.getByName(Constants.BILI_HELPER_SERVER_HOST), Constants.BILI_HELPER_SERVER_PORT));
-        container.setHostString("tcp://"+Constants.BILI_HELPER_SERVER_HOST+":"+Constants.BILI_HELPER_SERVER_PORT);
+        socket.connect(new InetSocketAddress(InetAddress.getByName(Constants.Protocol.BILI_HELPER_SERVER_HOST), Constants.Protocol.BILI_HELPER_SERVER_PORT));
+        container.setHostString("tcp://"+ Constants.Protocol.BILI_HELPER_SERVER_HOST+":"+ Constants.Protocol.BILI_HELPER_SERVER_PORT);
         SakuraBilive.getThreadPool().execute(this::handleConnection);
     }
 
@@ -99,8 +99,8 @@ public class BiliHelperClient implements IBroadcastSource {
             DataInputStream dis = new DataInputStream(bis);
             daos = new DataOutputStream(bos);
             container.getLogger().info("成功连接至 {}, 正在登录节点...", container.getHostString());
-            writePacked(daos, createLoginPacket(Constants.BILI_HELPER_SERVER_KEY));
-            writePacked(daos, "");
+            writePacket(daos, createLoginPacket(Constants.Protocol.BILI_HELPER_SERVER_KEY));
+            writePacket(daos, "");
             int length;
             try {
                 while ((length = dis.readInt()) != -1) {
@@ -133,7 +133,7 @@ public class BiliHelperClient implements IBroadcastSource {
     private void keepAlive() {
         while(container.getRunning().get() && !socket.isClosed()) {
             try {
-                writePacked(daos, "");
+                writePacket(daos, "");
             } catch (IOException e) {
                 container.getLogger().error("发送心跳出错", e);
             }
@@ -146,7 +146,7 @@ public class BiliHelperClient implements IBroadcastSource {
         }
     }
 
-    private void writePacked(DataOutputStream daos, String data) throws IOException {
+    private void writePacket(DataOutputStream daos, String data) throws IOException {
         char[] array = data.toCharArray();
         daos.writeInt(array.length);
         for (char c : array) {

@@ -8,10 +8,9 @@ import kong.unirest.Unirest;
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
 import sakura.kooi.MixedBiliveServer.Constants;
-import sakura.kooi.MixedBiliveServer.SakuraBilive;
-import sakura.kooi.logger.Logger;
 
 import java.io.IOException;
+import java.net.ConnectException;
 import java.net.URI;
 import java.util.HashMap;
 import java.util.Map;
@@ -34,8 +33,8 @@ public class YokiClient extends WebSocketClient implements IBroadcastSource {
 
     private static String getToken(ClientContainer container) throws IOException {
         container.getLogger().info("尝试请求Token...");
-        HttpResponse<String> response = Unirest.get(Constants.YOKI_TOKEN_SERVER)
-                .header("Referer", Constants.YOKI_TOKEN_SERVER)
+        HttpResponse<String> response = Unirest.get(Constants.Protocol.YOKI_TOKEN_SERVER)
+                .header("Referer", Constants.Protocol.YOKI_TOKEN_SERVER)
                 .header("User-Agent", "Mozilla/4.0 (compatible; MSIE 9.0; Windows NT 6.1)")
                 .asString();
         if (response.getStatus() != 200) throw new IOException("Failed get token: HTTP code "+response.getStatus());
@@ -65,8 +64,9 @@ public class YokiClient extends WebSocketClient implements IBroadcastSource {
     }
 
     @Override
-    public void onError(Exception e) {
-        container.onErrorOccurred("数据处理出错", e);
+    public void onError(Exception ex) {
+        if (!(ex instanceof ConnectException))
+            container.onErrorOccurred("数据处理出错", ex);
     }
 
     @Override

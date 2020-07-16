@@ -35,7 +35,7 @@ public class FishingDetection {
         }
     }
     public static long countFishing() {
-        return fishingRoom.values().stream().filter(aBoolean -> !aBoolean).count();
+        return fishingRoom.values().stream().filter(aBoolean -> aBoolean).count();
     }
 
     public static long countTotal() {

@@ -10,6 +10,7 @@ import org.java_websocket.protocols.Protocol;
 import sakura.kooi.MixedBiliveServer.Constants;
 import sakura.kooi.MixedBiliveServer.utils.PerMessageDeflateExtension;
 
+import java.net.ConnectException;
 import java.net.URI;
 import java.util.Collections;
 import java.util.HashMap;
@@ -46,8 +47,9 @@ public class OfficialClient extends WebSocketClient implements IBroadcastSource 
     }
 
     @Override
-    public void onError(Exception e) {
-        container.onErrorOccurred("数据处理出错", e);
+    public void onError(Exception ex) {
+        if (!(ex instanceof ConnectException))
+            container.onErrorOccurred("数据处理出错", ex);
     }
 
     @Override

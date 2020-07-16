@@ -6,6 +6,7 @@ import com.google.gson.JsonParser;
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
 
+import java.net.ConnectException;
 import java.net.URI;
 import java.nio.ByteBuffer;
 
@@ -39,7 +40,8 @@ public class RaffleJsClient extends WebSocketClient implements IBroadcastSource 
 
     @Override
     public void onError(Exception ex) {
-        container.onErrorOccurred("数据处理出错", ex);
+        if (!(ex instanceof ConnectException))
+            container.onErrorOccurred("数据处理出错", ex);
     }
 
     @Override
